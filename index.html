@@ -382,8 +382,26 @@ async function gistWrite(pat, boardData) {
   const content = JSON.stringify(boardData);
   let gistId = loadGistId();
 
+  // If no ID cached, search existing Gists BEFORE creating a new one
+  // This prevents duplicate Gists when opening on a new browser/device
   if (!gistId) {
-    // Create new private gist
+    try {
+      for (let page = 1; page <= 5; page++) {
+        const r = await fetch(`https://api.github.com/gists?per_page=20&page=${page}`, {
+          headers: { 'Authorization': `token ${pat}`, 'Accept': 'application/vnd.github+json' }
+        });
+        if (!r.ok) break;
+        const list = await r.json();
+        if (!Array.isArray(list) || !list.length) break;
+        const found = list.find(g => g.files?.[GIST_FILENAME]);
+        if (found) { gistId = found.id; saveGistId(gistId); break; }
+        if (list.length < 20) break;
+      }
+    } catch(e) { /* fall through to create */ }
+  }
+
+  if (!gistId) {
+    // No existing Gist found — create one
     const res = await fetch('https://api.github.com/gists', {
       method: 'POST',
       headers: { 'Authorization': `token ${pat}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json' },
@@ -398,7 +416,7 @@ async function gistWrite(pat, boardData) {
     gistId = data.id;
     saveGistId(gistId);
   } else {
-    // Update existing gist
+    // Update existing Gist
     const res = await fetch(`https://api.github.com/gists/${gistId}`, {
       method: 'PATCH',
       headers: { 'Authorization': `token ${pat}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json' },
