@@ -343,14 +343,35 @@ function setSyncStatus(state, label) {
 }
 
 async function gistRead(pat) {
-  const gistId = loadGistId();
+  // Step 1: get or discover the Gist ID
+  let gistId = loadGistId();
+
+  if (!gistId) {
+    // Phone doesn't have the ID yet — search the user's gists for our file
+    try {
+      for (let page = 1; page <= 5; page++) {
+        const res = await fetch(`https://api.github.com/gists?per_page=20&page=${page}`, {
+          headers: { 'Authorization': `token ${pat}`, 'Accept': 'application/vnd.github+json' }
+        });
+        if (!res.ok) break;
+        const list = await res.json();
+        if (!Array.isArray(list) || !list.length) break;
+        const found = list.find(g => g.files?.[GIST_FILENAME]);
+        if (found) { gistId = found.id; saveGistId(gistId); break; }
+        if (list.length < 20) break;
+      }
+    } catch(e) { /* fall through */ }
+  }
+
   if (!gistId) return null;
+
+  // Step 2: fetch the Gist content
   try {
     const res = await fetch(`https://api.github.com/gists/${gistId}`, {
       headers: { 'Authorization': `token ${pat}`, 'Accept': 'application/vnd.github+json' }
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data    = await res.json();
     const content = data.files?.[GIST_FILENAME]?.content;
     if (!content) return null;
     return JSON.parse(content);
@@ -423,12 +444,15 @@ let dragState    = null;
   if (antKey) document.getElementById('api-key').value = antKey;
   if (pat)    document.getElementById('github-pat').value = pat;
 
-  // If PAT exists, try to pull latest from Gist first
-  if (pat && loadGistId()) {
+  // If PAT exists, always try Gist — even if we don't have the ID yet
+  // (phone will search and discover the existing Gist)
+  if (pat) {
+    document.getElementById('load-msg').textContent = 'Loading your board...';
+    show('loading');
     setSyncStatus('syncing', 'syncing...');
     const remote = await gistRead(pat);
     if (remote) {
-      saveLocal(remote); // update local cache with remote
+      saveLocal(remote);
       setSyncStatus('synced', 'synced ✓');
     } else {
       setSyncStatus('error', 'sync failed');
