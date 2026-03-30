@@ -134,6 +134,90 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
 .add-more-label { font-family: 'Archivo Black', sans-serif; font-size: 10px; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 12px; }
 .add-more-row { display: flex; gap: 10px; align-items: flex-end; }
 .add-more-row textarea { flex: 1; min-height: 76px; border-radius: 8px; font-size: 12.5px; padding: 11px 13px; }
+/* ── STATS DASHBOARD ── */
+.stats-dashboard {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 24px;
+}
+@media (max-width: 600px) {
+  .stats-dashboard { grid-template-columns: repeat(2, 1fr); }
+}
+.stat-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--stat-color, var(--border));
+  opacity: 0.7;
+}
+.stat-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  font-family: 'Archivo Black', sans-serif;
+}
+.stat-value {
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--stat-color, var(--text));
+}
+.stat-value.big { font-size: 32px; }
+.stat-sub {
+  font-size: 10px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.stat-delta {
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.stat-delta.up   { background: #4ECDC422; color: var(--teal); }
+.stat-delta.down { background: #FF6B6B22; color: var(--red); }
+.stat-delta.same { background: #44444422; color: var(--dim); }
+
+/* week bar chart */
+.week-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+  margin-top: 4px;
+}
+.week-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; height: 100%; justify-content: flex-end; }
+.week-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  transition: height 0.4s cubic-bezier(0.4,0,0.2,1);
+}
+.week-bar-label { font-size: 7px; color: var(--dim); letter-spacing: 0; }
+
+/* streak flame */
+.streak-flame { font-size: 18px; line-height: 1; }
+@keyframes flame-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+.streak-flame.active { animation: flame-pulse 1.5s ease-in-out infinite; }
+
 .done-banner { text-align: center; padding: 44px 20px 12px; display: none; }
 .done-banner.visible { display: block; }
 .done-banner .big-emoji { font-size: 50px; margin-bottom: 12px; animation: pop 0.5s ease; }
@@ -237,6 +321,7 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
       <div class="progress-wrap"><div class="progress-fill" id="progress-fill"></div></div>
       <span class="progress-label" id="progress-label">0 / 0</span>
     </div>
+    <div class="stats-dashboard" id="stats-dashboard"></div>
     <div class="filters" id="filter-pills"></div>
     <div id="board-content"></div>
     <div class="add-cat-row">
@@ -991,6 +1076,7 @@ function renderBoard() {
   });
 
   updateProgress(day);
+  renderDashboard(days);
 }
 
 function updateProgress(day) {
@@ -1015,6 +1101,130 @@ function mkPillEl(label, active, color, onclick) {
 // ──────────────────────────────────────────────
 //  HISTORY
 // ──────────────────────────────────────────────
+function renderDashboard(days) {
+  const wrap = document.getElementById('stats-dashboard');
+  if (!wrap) return;
+
+  const keys     = Object.keys(days).sort();
+  const todayIdx = keys.indexOf(today);
+  const yday     = todayIdx > 0 ? keys[todayIdx - 1] : null;
+
+  // ── helpers ──
+  function stats(dk) {
+    if (!dk || !days[dk]) return { done: 0, total: 0, rate: 0 };
+    const day     = days[dk];
+    const doneSet = new Set(day.done||[]);
+    const total   = (day.categories||[]).reduce((s,c)=>s+c.tasks.length,0);
+    const done    = doneSet.size;
+    return { done, total, rate: total ? Math.round(done/total*100) : 0 };
+  }
+
+  const td = stats(today);
+  const yd = stats(yday);
+
+  // Streak — consecutive days with at least 1 task done
+  let streak = 0;
+  for (let i = todayIdx; i >= 0; i--) {
+    const s = stats(keys[i]);
+    if (s.done > 0) streak++;
+    else break;
+  }
+
+  // Best day ever
+  let best = 0;
+  keys.forEach(k => { const s = stats(k); if (s.done > best) best = s.done; });
+
+  // Week bars (last 7 days)
+  const DAY_LETTERS = ['S','M','T','W','T','F','S'];
+  const weekDays = [];
+  for (let i = 6; i >= 0; i--) {
+    const d   = new Date(); d.setDate(d.getDate() - i);
+    const dk  = [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
+    const s   = stats(dk);
+    weekDays.push({ label: DAY_LETTERS[d.getDay()], rate: s.rate, isToday: dk===today, done: s.done, total: s.total });
+  }
+
+  // ── delta helper ──
+  function delta(now, prev, suffix='') {
+    if (prev === 0 && now === 0) return `<span class="stat-delta same">—</span>`;
+    const diff = now - prev;
+    if (diff > 0) return `<span class="stat-delta up">↑ +${diff}${suffix}</span>`;
+    if (diff < 0) return `<span class="stat-delta down">↓ ${diff}${suffix}</span>`;
+    return `<span class="stat-delta same">= same</span>`;
+  }
+
+  // ── build cards ──
+  const cards = [
+    // 1. Yesterday completion
+    {
+      color: yd.rate >= 80 ? '#4ECDC4' : yd.rate >= 50 ? '#FFE66D' : '#FF6B6B',
+      label: 'YESTERDAY',
+      value: yd.total ? `${yd.rate}%` : '—',
+      sub: yd.total ? `${yd.done} of ${yd.total} done` : 'no data yet',
+      extra: yd.total ? delta(yd.rate, 0, '%') : ''
+    },
+    // 2. Today progress
+    {
+      color: '#4ECDC4',
+      label: 'TODAY',
+      value: td.total ? `${td.rate}%` : '—',
+      sub: td.total ? `${td.done} of ${td.total} done` : 'no tasks yet',
+      extra: td.total && yd.total ? delta(td.rate, yd.rate, '%') : ''
+    },
+    // 3. Streak
+    {
+      color: streak >= 3 ? '#FF9AA2' : streak >= 1 ? '#FFE66D' : '#444',
+      label: 'DAY STREAK',
+      value: streak,
+      sub: streak === 0 ? 'start today!' : streak === 1 ? '1 day going' : `${streak} days strong`,
+      flame: streak > 0,
+      extra: ''
+    },
+    // 4. Best day
+    {
+      color: '#C7CEEA',
+      label: 'BEST DAY',
+      value: best || '—',
+      sub: best ? `tasks completed` : 'no data yet',
+      extra: td.done >= best && best > 0 ? '<span class="stat-delta up">↑ NEW RECORD</span>' : ''
+    }
+  ];
+
+  wrap.innerHTML = '';
+  cards.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'stat-card';
+    card.style.setProperty('--stat-color', c.color);
+    card.innerHTML = `
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value">${c.flame ? `<span class="streak-flame ${c.value>0?'active':''}">🔥</span> ` : ''}${c.value}</div>
+      <div class="stat-sub">${c.sub} ${c.extra}</div>`;
+    wrap.appendChild(card);
+  });
+
+  // 5. Week chart card (spans full width on mobile via JS resize observer hack — just add as 5th card)
+  const weekCard = document.createElement('div');
+  weekCard.className = 'stat-card';
+  weekCard.style.setProperty('--stat-color', '#B5EAD7');
+  weekCard.style.gridColumn = 'span 4';
+  const maxRate = Math.max(...weekDays.map(d=>d.rate), 1);
+  const bars = weekDays.map(d => {
+    const h   = Math.max(d.rate / maxRate * 100, d.total > 0 ? 8 : 2);
+    const col = d.isToday ? '#4ECDC4' : d.rate >= 80 ? '#4ECDC488' : d.rate >= 1 ? '#4ECDC444' : '#2A2A32';
+    return `<div class="week-bar-wrap">
+      <div class="week-bar" style="height:${h}%;background:${col};"></div>
+      <div class="week-bar-label" style="color:${d.isToday?'var(--teal)':'var(--dim)'}">${d.label}</div>
+    </div>`;
+  }).join('');
+  weekCard.innerHTML = `
+    <div class="stat-label">7-DAY COMPLETION RATE</div>
+    <div class="week-bars">${bars}</div>`;
+  wrap.appendChild(weekCard);
+
+  // Responsive: on small screens span week card 2 cols
+  if (window.innerWidth <= 600) weekCard.style.gridColumn = 'span 2';
+}
+
 function showHistory() {
   const days = loadAll(), keys = Object.keys(days).sort().reverse();
   const wrap = document.getElementById('history-content');
