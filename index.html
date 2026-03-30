@@ -478,8 +478,28 @@ let dragState    = null;
   }
 
   const days = loadAll();
-  if (days[today]) { renderBoard(); show('board'); }
-  else { renderInputNotices(days); show('input'); }
+  if (days[today]) {
+    renderBoard(); show('board');
+  } else {
+    const co = getCarryoverTasks(days);
+    if (co.length > 0) {
+      // Auto-build today's board from carryover — no input needed
+      const groups = {};
+      co.forEach(t => {
+        if (!groups[t.catName]) groups[t.catName] = { name: t.catName, color: t.catColor, items: [] };
+        groups[t.catName].items.push({ text: t.text, carried: true });
+      });
+      const categories = Object.values(groups).map((g, i) => ({
+        name: g.name, id: 'c'+i, color: g.color, tasks: g.items
+      }));
+      days[today] = { categories, done: [] };
+      saveAll(days);
+      renderBoard(); show('board');
+    } else {
+      // Truly empty — first time ever, show input
+      renderInputNotices(days); show('input');
+    }
+  }
 })();
 
 // ──────────────────────────────────────────────
@@ -1036,7 +1056,7 @@ async function callClaude(apiKey, text) {
     const res = await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:`Extract all tasks from text. Rules: deduplicate, group into 2-7 categories (2-3 word names), each task under 90 chars. Return ONLY raw JSON no markdown.\nFormat: {"categories":[{"name":"Name","tasks":["task"]}]}\nText:\n${text}`}]})
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:`Extract tasks from the text below. Rules:\n- Keep each task EXACTLY as written — do NOT break tasks into sub-steps, do NOT expand or elaborate\n- One task in = one task out. Never split one task into multiple tasks.\n- Deduplicate only if two tasks say the exact same thing\n- Group into 2-7 categories with short 2-3 word names\n- Each task under 90 chars (trim only if too long)\n- Return ONLY raw JSON, no markdown, no explanation\n\nFormat: {"categories":[{"name":"Name","tasks":["task"]}]}\n\nText:\n${text}`}]})
     });
     clearInterval(iv);
     if (!res.ok) { const t=await res.text().catch(()=>''); return {ok:false,error:`HTTP ${res.status} — ${t.slice(0,200)}`}; }
