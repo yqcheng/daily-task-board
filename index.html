@@ -515,13 +515,26 @@ async function gistWrite(pat, boardData) {
 function saveAll(data) {
   saveLocal(data);
   const pat = loadPAT();
-  if (!pat) return; // no sync without PAT
+  if (!pat) return;
 
   setSyncStatus('syncing', 'syncing...');
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(async () => {
     try {
-      await gistWrite(pat, data);
+      // CRITICAL: always fetch remote first and merge before writing.
+      // This prevents a new device from overwriting history it doesn't have locally.
+      const remote = await gistRead(pat);
+      let merged = data;
+      if (remote && typeof remote === 'object') {
+        // Remote wins for any day NOT in current local data
+        // Local wins for today (most recent edits)
+        merged = { ...remote, ...data };
+        // But always keep today's local version (freshest)
+        merged[today] = data[today] || remote[today];
+      }
+      // Also update localStorage with the full merged set so this device has all history
+      saveLocal(merged);
+      await gistWrite(pat, merged);
       setSyncStatus('synced', 'synced ✓');
     } catch(e) {
       console.error('Gist sync error:', e);
@@ -548,17 +561,32 @@ let dragState    = null;
   if (pat)    document.getElementById('github-pat').value = pat;
 
   // If PAT exists, always try Gist — even if we don't have the ID yet
-  // (phone will search and discover the existing Gist)
   if (pat) {
     document.getElementById('load-msg').textContent = 'Loading your board...';
     show('loading');
     setSyncStatus('syncing', 'syncing...');
     const remote = await gistRead(pat);
-    if (remote) {
-      saveLocal(remote);
+    if (remote && typeof remote === 'object') {
+      // Merge: remote is the source of truth for history.
+      // Local may have fresher data for today — local today wins.
+      const local  = loadAll();
+      const merged = { ...remote, ...local };
+      // Remote today wins only if local has nothing for today
+      if (!local[today] && remote[today]) merged[today] = remote[today];
+      saveLocal(merged);
       setSyncStatus('synced', 'synced ✓');
     } else {
+      // Sync failed — warn prominently. Don't block, but show notice
       setSyncStatus('error', 'sync failed');
+      if (loadGistId()) {
+        // Had a Gist before but couldn't reach it — risky to let user input
+        const notice = document.createElement('div');
+        notice.id = 'sync-warn';
+        notice.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1A0F0F;border-bottom:2px solid #FF6B6B44;padding:10px 20px;font-size:12px;color:#FF6B6B;font-family:IBM Plex Mono,monospace;text-align:center';
+        notice.textContent = '⚠ Could not sync — your history may not have loaded. Do not add new tasks until synced ✓';
+        document.body.appendChild(notice);
+        setTimeout(() => notice.remove(), 8000);
+      }
     }
   }
 
@@ -677,7 +705,20 @@ async function startParse() {
     });
   }
 
-  const d = loadAll();
+  // CRITICAL: before saving, fetch the latest Gist state so we never overwrite history
+  // Even if boot already loaded it, re-fetch to get the freshest version
+  const pat = loadPAT();
+  let d = loadAll();
+  if (pat) {
+    const remote = await gistRead(pat);
+    if (remote) {
+      // Merge: remote is the source of truth for all past days
+      // Only today's new board gets added on top
+      Object.keys(remote).forEach(k => {
+        if (k !== today) d[k] = remote[k]; // preserve all history
+      });
+    }
+  }
   d[today] = { categories, done: [] };
   saveAll(d);
   renderBoard();
