@@ -653,16 +653,37 @@ function renderInputNotices(days) {
 // ──────────────────────────────────────────────
 function getCarryoverTasks(days) {
   const pastKeys = Object.keys(days).filter(k => k < today).sort();
+
+  // Build a set of task texts that were completed on ANY past day
+  const everCompleted = new Set();
+  pastKeys.forEach(dk => {
+    const day = days[dk], doneSet = new Set(day.done||[]);
+    (day.categories||[]).forEach(cat => {
+      (cat.tasks||[]).forEach((t, ti) => {
+        const text = typeof t==='string'?t:t.text;
+        const key  = cat.id+'-'+ti;
+        if (doneSet.has(key)) everCompleted.add(text.toLowerCase().trim());
+      });
+    });
+  });
+
+  // Now collect uncompleted tasks, skipping anything ever completed
   const seen = new Set(), result = [];
   pastKeys.forEach(dk => {
     const day = days[dk], doneSet = new Set(day.done||[]);
     (day.categories||[]).forEach(cat => {
       (cat.tasks||[]).forEach((t, ti) => {
-        const text = typeof t==='string'?t:t.text, key = cat.id+'-'+ti, norm = text.toLowerCase().trim();
-        if (!doneSet.has(key) && !seen.has(norm)) { seen.add(norm); result.push({text, catName:cat.name, catColor:cat.color}); }
+        const text = typeof t==='string'?t:t.text;
+        const key  = cat.id+'-'+ti;
+        const norm = text.toLowerCase().trim();
+        if (!doneSet.has(key) && !everCompleted.has(norm) && !seen.has(norm)) {
+          seen.add(norm);
+          result.push({ text, catName: cat.name, catColor: cat.color });
+        }
       });
     });
   });
+
   return result;
 }
 
