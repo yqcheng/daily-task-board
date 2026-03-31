@@ -130,10 +130,33 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
 .add-cat-input::placeholder { color: #2A2A32; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0; }
 .add-cat-btn { background: none; border: 1.5px solid var(--border); color: var(--muted); padding: 9px 16px; border-radius: 8px; font-family: 'Archivo Black', sans-serif; font-size: 11px; letter-spacing: 0.05em; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
 .add-cat-btn:hover { border-color: var(--teal); color: var(--teal); }
-.add-more-panel { background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 18px; margin-top: 4px; }
+.add-more-panel { background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 18px; margin-top: 4px; transition: border-color 0.2s; }
+.add-more-panel:focus-within { border-color: #2A4A48; }
 .add-more-label { font-family: 'Archivo Black', sans-serif; font-size: 10px; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 12px; }
 .add-more-row { display: flex; gap: 10px; align-items: flex-end; }
 .add-more-row textarea { flex: 1; min-height: 76px; border-radius: 8px; font-size: 12.5px; padding: 11px 13px; }
+
+/* quick-add mode */
+.quick-add-row { display: flex; gap: 8px; align-items: center; }
+.quick-add-row input { flex: 1; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none; transition: border-color 0.2s; }
+.quick-add-row input:focus { border-color: var(--teal); }
+.quick-add-row input::placeholder { color: #3A3A44; }
+
+.cat-picker { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.cat-pick-btn {
+  padding: 6px 13px; border-radius: 20px;
+  font-family: 'Archivo Black', sans-serif; font-size: 10px; letter-spacing: 0.06em;
+  cursor: pointer; border: 1.5px solid; background: transparent;
+  transition: all 0.15s;
+}
+.cat-pick-btn:hover { opacity: 0.8; transform: translateY(-1px); }
+.cat-pick-btn.new-cat-btn { border-color: var(--border) !important; color: var(--muted) !important; }
+.cat-pick-btn.new-cat-btn:hover { border-color: var(--teal) !important; color: var(--teal) !important; }
+
+.new-cat-inline { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.new-cat-inline input { flex: 1; background: var(--surface2); border: 1.5px solid var(--teal); border-radius: 8px; padding: 8px 13px; color: var(--text); font-family: 'Archivo Black', sans-serif; font-size: 11px; letter-spacing: 0.05em; outline: none; }
+.new-cat-inline input::placeholder { color: #3A3A44; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0; font-size: 11px; font-weight: normal; }
+.confirm-cat-btn { background: var(--teal); color: #0C0C0F; border: none; padding: 8px 16px; border-radius: 8px; font-family: 'Archivo Black', sans-serif; font-size: 11px; cursor: pointer; white-space: nowrap; }
 /* ── STATS DASHBOARD ── */
 .stats-dashboard {
   display: grid;
@@ -335,13 +358,35 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
       <p>You absolute machine.</p>
     </div>
     <div class="add-more-panel">
-      <div class="add-more-label">ADD MORE TASKS</div>
-      <div class="add-more-row">
-        <textarea id="add-more-input" class="field"
-          placeholder="Paste more notes mid-day — AI parses and merges, no duplicates..."
-          oninput="document.getElementById('add-btn').disabled=!this.value.trim()"></textarea>
-        <button class="teal-btn" id="add-btn" style="padding:12px 20px" disabled onclick="addMoreTasks()">ADD →</button>
+      <div class="add-more-label" id="add-more-label">ADD TASKS</div>
+
+      <!-- Single-line quick add -->
+      <div id="quick-add-ui">
+        <div class="quick-add-row">
+          <input id="quick-add-input" placeholder="Type a task or paste a big chunk of notes..."
+            oninput="onAddInput(this.value)" onkeydown="if(event.key==='Enter')event.preventDefault()" />
+        </div>
+        <div class="cat-picker" id="cat-picker" style="display:none"></div>
+        <div class="new-cat-inline" id="new-cat-inline" style="display:none">
+          <input id="new-cat-name-input" placeholder="New category name..." maxlength="40"
+            onkeydown="if(event.key==='Enter')confirmNewCat();if(event.key==='Escape')cancelNewCat()" />
+          <button class="confirm-cat-btn" onclick="confirmNewCat()">CREATE →</button>
+        </div>
       </div>
+
+      <!-- Multi-line blob mode -->
+      <div id="blob-add-ui" style="display:none">
+        <div class="add-more-row">
+          <textarea id="add-more-input" class="field"
+            placeholder="Paste meeting notes, Notion dump, anything — AI parses and merges..."
+            oninput="onAddInput(this.value)"></textarea>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:8px">
+          <button class="ghost-btn" onclick="switchToQuickAdd()">← single task</button>
+          <button class="teal-btn" id="add-btn" style="padding:11px 24px" disabled onclick="addMoreTasks()">ORGANIZE →</button>
+        </div>
+      </div>
+
       <div class="error-box" id="add-error">
         <p id="add-error-msg">Failed to add.</p>
         <p class="error-detail" id="add-error-detail"></p>
@@ -696,6 +741,9 @@ async function startParse() {
   const days = loadAll();
   if (days[today]) {
     show('board'); renderBoard();
+    // Route to blob mode since this came from the initial paste input
+    document.getElementById('quick-add-input').value = text;
+    switchToBlobAdd();
     document.getElementById('add-more-input').value = text;
     document.getElementById('add-btn').disabled = false;
     ta.value = ''; document.getElementById('line-count').textContent = '0 lines';
@@ -747,7 +795,134 @@ async function startParse() {
 }
 
 // ──────────────────────────────────────────────
-//  ADD MORE
+//  SMART ADD INPUT
+// ──────────────────────────────────────────────
+let addMode = 'quick'; // 'quick' | 'blob'
+let pendingQuickTask = '';
+
+function onAddInput(val) {
+  const lines = val.split('\n').filter(l => l.trim());
+  const isBlob = lines.length > 1 || val.length > 120;
+
+  if (isBlob && addMode !== 'blob') switchToBlobAdd();
+  else if (!isBlob && addMode !== 'quick') switchToQuickAdd();
+
+  if (addMode === 'quick') {
+    pendingQuickTask = val.trim();
+    renderCatPicker(pendingQuickTask);
+    document.getElementById('new-cat-inline').style.display = 'none';
+  } else {
+    document.getElementById('add-btn').disabled = !val.trim();
+  }
+}
+
+function switchToBlobAdd() {
+  addMode = 'blob';
+  document.getElementById('quick-add-ui').style.display = 'none';
+  document.getElementById('blob-add-ui').style.display = 'block';
+  document.getElementById('add-more-label').textContent = 'PASTE NOTES — AI WILL ORGANIZE';
+  // carry text over
+  const val = document.getElementById('quick-add-input').value;
+  document.getElementById('add-more-input').value = val;
+  document.getElementById('add-btn').disabled = !val.trim();
+}
+
+function switchToQuickAdd() {
+  addMode = 'quick';
+  document.getElementById('blob-add-ui').style.display = 'none';
+  document.getElementById('quick-add-ui').style.display = 'block';
+  document.getElementById('add-more-label').textContent = 'ADD TASKS';
+  const val = document.getElementById('add-more-input').value;
+  document.getElementById('quick-add-input').value = val;
+  document.getElementById('new-cat-inline').style.display = 'none';
+  pendingQuickTask = val.trim();
+  renderCatPicker(pendingQuickTask);
+}
+
+function renderCatPicker(taskText) {
+  const picker = document.getElementById('cat-picker');
+  if (!taskText) { picker.style.display = 'none'; return; }
+  const days = loadAll(), day = days[today];
+  if (!day) { picker.style.display = 'none'; return; }
+
+  picker.style.display = 'flex';
+  picker.innerHTML = '';
+
+  (day.categories || []).forEach(cat => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-pick-btn';
+    btn.textContent = cat.name.toUpperCase();
+    btn.style.borderColor = cat.color;
+    btn.style.color = cat.color;
+    btn.onclick = () => quickAddToCategory(cat.id);
+    picker.appendChild(btn);
+  });
+
+  // + new category button
+  const newBtn = document.createElement('button');
+  newBtn.className = 'cat-pick-btn new-cat-btn';
+  newBtn.textContent = '+ NEW CATEGORY';
+  newBtn.onclick = showNewCatInline;
+  picker.appendChild(newBtn);
+}
+
+function quickAddToCategory(catId) {
+  const task = pendingQuickTask;
+  if (!task) return;
+  const days = loadAll(), day = days[today];
+  const cat  = day?.categories?.find(c => c.id === catId);
+  if (!cat) return;
+
+  // Dedup check
+  const exists = cat.tasks.some(t => (typeof t==='string'?t:t.text).toLowerCase().trim() === task.toLowerCase().trim());
+  if (!exists) {
+    cat.tasks.push({ text: task, carried: false });
+    saveAll(days);
+  }
+
+  // Reset
+  document.getElementById('quick-add-input').value = '';
+  pendingQuickTask = '';
+  document.getElementById('cat-picker').style.display = 'none';
+  document.getElementById('new-cat-inline').style.display = 'none';
+  renderBoard();
+  // Focus back for rapid entry
+  setTimeout(() => document.getElementById('quick-add-input').focus(), 50);
+}
+
+function showNewCatInline() {
+  document.getElementById('new-cat-inline').style.display = 'flex';
+  document.getElementById('new-cat-name-input').value = '';
+  setTimeout(() => document.getElementById('new-cat-name-input').focus(), 50);
+}
+
+function cancelNewCat() {
+  document.getElementById('new-cat-inline').style.display = 'none';
+  document.getElementById('quick-add-input').focus();
+}
+
+function confirmNewCat() {
+  const name = document.getElementById('new-cat-name-input').value.trim();
+  if (!name || !pendingQuickTask) return;
+
+  const days = loadAll(), day = days[today];
+  if (!day) return;
+  const used  = new Set(day.categories.map(c => c.color));
+  const color = COLORS.find(c => !used.has(c)) || COLORS[day.categories.length % COLORS.length];
+  const newCat = { name, id: 'cn_'+uid(), color, tasks: [{ text: pendingQuickTask, carried: false }] };
+  day.categories.push(newCat);
+  saveAll(days);
+
+  document.getElementById('quick-add-input').value = '';
+  document.getElementById('new-cat-inline').style.display = 'none';
+  document.getElementById('cat-picker').style.display = 'none';
+  pendingQuickTask = '';
+  renderBoard();
+  setTimeout(() => document.getElementById('quick-add-input').focus(), 50);
+}
+
+// ──────────────────────────────────────────────
+//  BLOB ADD (AI parse)
 // ──────────────────────────────────────────────
 async function addMoreTasks() {
   const text = document.getElementById('add-more-input').value.trim();
@@ -758,7 +933,7 @@ async function addMoreTasks() {
   document.getElementById('add-error').classList.remove('visible');
 
   const result = await callClaude(apiKey, text);
-  addBtn.textContent = 'ADD →';
+  addBtn.textContent = 'ORGANIZE →';
   if (!result.ok) {
     addBtn.disabled = false;
     document.getElementById('add-error-msg').textContent = 'Failed to add tasks.';
@@ -786,6 +961,8 @@ async function addMoreTasks() {
   saveAll(days);
   document.getElementById('add-more-input').value = '';
   addBtn.disabled = true;
+  // switch back to quick mode after blob add
+  switchToQuickAdd();
   renderBoard();
 }
 
