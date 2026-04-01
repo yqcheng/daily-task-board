@@ -115,8 +115,9 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
 .task-card.carried { border-left: 3px solid #4ECDC455; }
 .task-card.dragging { opacity: 0.3; cursor: grabbing; transform: scale(0.97); }
 .task-card.drag-ghost { opacity: 0.85; transform: rotate(1.5deg) scale(1.03); box-shadow: 0 8px 30px rgba(0,0,0,0.5); cursor: grabbing; pointer-events: none; }
-.drag-handle { color: #333; font-size: 12px; cursor: grab; flex-shrink: 0; line-height: 1; padding: 2px 0; transition: color 0.15s; }
-.task-card:hover .drag-handle { color: #555; }
+.drag-handle { color: #444; font-size: 14px; cursor: grab; flex-shrink: 0; line-height: 1; padding: 4px 6px; margin: -4px -2px; border-radius: 4px; transition: color 0.15s, background 0.15s; touch-action: none; }
+.task-card:hover .drag-handle { color: #666; }
+.drag-handle:active { background: #2A2A32; color: var(--teal); }
 .checkbox { width: 18px; height: 18px; border-radius: 5px; border: 2px solid; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; transition: background 0.2s, transform 0.12s; cursor: pointer; }
 .task-card:hover .checkbox:not(.checked) { transform: scale(1.1); }
 .task-text { font-size: 12.5px; line-height: 1.4; flex: 1; }
@@ -295,7 +296,7 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
   <div class="input-header">
     <span class="logo">🗂</span>
     <h1>PASTE YOUR <span>CHAOS</span></h1>
-    <p>Paste today's tasks. Unfinished items carry over automatically. Syncs across all your devices.</p>
+    <p>Syncs across all your devices via GitHub Gist.</p>
   </div>
   <div class="input-wrap">
     <div id="input-notices"></div>
@@ -303,17 +304,28 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
       <input class="key-input" id="api-key" type="password" placeholder="sk-ant-... (Anthropic API key)" spellcheck="false" autocomplete="off" />
       <a class="key-link" href="https://console.anthropic.com/settings/keys" target="_blank">get key ↗</a>
     </div>
-    <div class="key-row" style="margin-bottom:14px">
-      <input class="key-input" id="github-pat" type="password" placeholder="ghp_... (GitHub PAT for sync across devices)" spellcheck="false" autocomplete="off" />
+    <div class="key-row" style="margin-bottom:16px">
+      <input class="key-input" id="github-pat" type="password" placeholder="ghp_... (GitHub PAT for sync)" spellcheck="false" autocomplete="off" />
       <a class="key-link" href="https://github.com/settings/tokens/new?scopes=gist&description=DailyTaskBoard" target="_blank">get PAT ↗</a>
     </div>
-    <textarea id="raw-input" class="field" style="min-height:190px;margin-bottom:0"
-      placeholder="Paste today's notes, Notion dump, meeting action items..."></textarea>
-    <div class="input-footer">
-      <span class="line-count" id="line-count">0 lines</span>
-      <button class="sample-btn" onclick="loadSample()">load sample ↗</button>
-      <button class="teal-btn" id="go-btn" disabled onclick="startParse()">ORGANIZE IT →</button>
+
+    <!-- Primary action: load existing board -->
+    <button class="teal-btn" id="load-board-btn" style="width:100%;margin-bottom:12px" disabled onclick="loadExistingBoard()">LOAD MY BOARD →</button>
+
+    <!-- Secondary: add new tasks (collapsible) -->
+    <div id="new-tasks-toggle" style="text-align:center;margin-bottom:10px;display:none">
+      <button class="sample-btn" onclick="toggleNewTasksArea()" id="toggle-new-btn">+ add new tasks for today ↓</button>
     </div>
+    <div id="new-tasks-area" style="display:none">
+      <textarea id="raw-input" class="field" style="min-height:160px;margin-bottom:0"
+        placeholder="Paste today's notes, Notion dump, meeting action items..."></textarea>
+      <div class="input-footer">
+        <span class="line-count" id="line-count">0 lines</span>
+        <button class="sample-btn" onclick="loadSample()">load sample ↗</button>
+        <button class="teal-btn" id="go-btn" disabled onclick="startParse()">ORGANIZE IT →</button>
+      </div>
+    </div>
+
     <div class="error-box" id="input-error">
       <p id="input-error-msg">Something went wrong.</p>
       <p class="error-detail" id="input-error-detail"></p>
@@ -663,23 +675,82 @@ let dragState    = null;
 // ──────────────────────────────────────────────
 //  INPUT LISTENERS
 // ──────────────────────────────────────────────
-const ta    = document.getElementById('raw-input');
+const ta = () => document.getElementById('raw-input');
 const keyEl = document.getElementById('api-key');
 const patEl = document.getElementById('github-pat');
 
 function checkReady() {
-  document.getElementById('go-btn').disabled = !(ta.value.trim() && keyEl.value.trim().startsWith('sk-'));
+  const hasKey  = keyEl.value.trim().startsWith('sk-');
+  const hasPAT  = patEl.value.trim().length > 10;
+  const hasText = ta() && ta().value.trim();
+  const loadBtn = document.getElementById('load-board-btn');
+  if (loadBtn) loadBtn.disabled = !(hasKey && hasPAT);
+  const goBtn = document.getElementById('go-btn');
+  if (goBtn) goBtn.disabled = !(hasKey && hasText);
+  const toggle = document.getElementById('new-tasks-toggle');
+  if (toggle) toggle.style.display = (hasKey && hasPAT) ? 'block' : 'none';
 }
 
-ta.addEventListener('input', () => {
-  document.getElementById('line-count').textContent = ta.value.split('\n').filter(l=>l.trim()).length + ' lines';
+function toggleNewTasksArea() {
+  const area = document.getElementById('new-tasks-area');
+  const btn  = document.getElementById('toggle-new-btn');
+  const open = area.style.display === 'none';
+  area.style.display = open ? 'block' : 'none';
+  btn.textContent = open ? '− hide ↑' : '+ add new tasks for today ↓';
+}
+
+async function loadExistingBoard() {
+  const pat    = patEl.value.trim();
+  const apiKey = keyEl.value.trim();
+  if (!pat || !apiKey) return;
+  document.getElementById('load-msg').textContent = 'Loading your board...';
+  show('loading');
+  setSyncStatus('syncing', 'syncing...');
+  const remote = await gistRead(pat);
+  if (remote && typeof remote === 'object' && Object.keys(remote).length > 0) {
+    const local  = loadAll();
+    const merged = { ...remote, ...local };
+    if (!local[today] && remote[today]) merged[today] = remote[today];
+    saveLocal(merged);
+    setSyncStatus('synced', 'synced ✓');
+    const days = loadAll();
+    if (days[today]) { renderBoard(); show('board'); return; }
+    const co = getCarryoverTasks(days);
+    if (co.length > 0) {
+      const groups = {};
+      co.forEach(t => {
+        if (!groups[t.catName]) groups[t.catName] = { name: t.catName, color: t.catColor, items: [] };
+        groups[t.catName].items.push({ text: t.text, carried: true });
+      });
+      const categories = Object.values(groups).map((g, i) => ({ name: g.name, id: 'c'+i, color: g.color, tasks: g.items }));
+      days[today] = { categories, done: [] };
+      saveAll(days);
+    }
+    renderBoard(); show('board');
+  } else {
+    setSyncStatus('synced', 'no sync yet');
+    show('input');
+    document.getElementById('new-tasks-area').style.display = 'block';
+    document.getElementById('toggle-new-btn').textContent = '− hide ↑';
+    const errBox = document.getElementById('input-error');
+    document.getElementById('input-error-msg').textContent = 'No existing board found — add your first tasks below.';
+    document.getElementById('input-error-msg').style.color = 'var(--teal)';
+    errBox.style.borderColor = '#4ECDC444';
+    errBox.style.background = '#0D1A19';
+    errBox.classList.add('visible');
+  }
+}
+
+ta().addEventListener('input', () => {
+  const lc = document.getElementById('line-count');
+  if (lc) lc.textContent = ta().value.split('\n').filter(l=>l.trim()).length + ' lines';
   document.getElementById('input-error').classList.remove('visible');
   checkReady();
 });
 keyEl.addEventListener('input', () => { saveAntKey(keyEl.value.trim()); checkReady(); });
-patEl.addEventListener('input', () => { savePAT(patEl.value.trim()); });
+patEl.addEventListener('input', () => { savePAT(patEl.value.trim()); checkReady(); });
 
-function loadSample() { ta.value = SAMPLE; ta.dispatchEvent(new Event('input')); }
+function loadSample() { ta().value = SAMPLE; ta().dispatchEvent(new Event('input')); }
 
 function renderInputNotices(days) {
   const co   = getCarryoverTasks(days);
@@ -736,7 +807,7 @@ function getCarryoverTasks(days) {
 //  PARSE FLOW
 // ──────────────────────────────────────────────
 async function startParse() {
-  const text = ta.value.trim(), apiKey = keyEl.value.trim();
+  const text = ta().value.trim(), apiKey = keyEl.value.trim();
   if (!text || !apiKey) return;
   const days = loadAll();
   if (days[today]) {
@@ -746,7 +817,7 @@ async function startParse() {
     switchToBlobAdd();
     document.getElementById('add-more-input').value = text;
     document.getElementById('add-btn').disabled = false;
-    ta.value = ''; document.getElementById('line-count').textContent = '0 lines';
+    ta().value = ''; document.getElementById('line-count').textContent = '0 lines';
     return;
   }
   show('loading');
@@ -1152,33 +1223,75 @@ function stopAutoScroll() {
 
 // Touch drag
 let touchDragState = null, touchGhost = null;
+const DRAG_THRESHOLD = 12; // px finger must move before drag activates
+
 function onTouchStart(e, catId, taskIdx) {
-  const card = e.currentTarget, rect = card.getBoundingClientRect(), touch = e.touches[0];
-  touchDragState = { catId, taskIdx, offsetX: touch.clientX-rect.left, offsetY: touch.clientY-rect.top };
-  touchGhost = card.cloneNode(true);
-  touchGhost.classList.add('drag-ghost');
-  touchGhost.style.cssText += `width:${rect.width}px;position:fixed;z-index:9999;left:${touch.clientX-touchDragState.offsetX}px;top:${touch.clientY-touchDragState.offsetY}px`;
-  document.body.appendChild(touchGhost);
-  card.classList.add('dragging');
-  e.preventDefault();
-}
-function onTouchMove(e) {
-  if (!touchDragState || !touchGhost) return;
-  e.preventDefault();
+  // Only allow drag from the ⠿ handle
+  const handle = e.target.closest('.drag-handle');
+  if (!handle) return; // let normal scroll happen
+
+  const card  = e.currentTarget;
   const touch = e.touches[0];
+  const rect  = card.getBoundingClientRect();
+
+  // Store intent but don't activate yet — wait for movement threshold
+  touchDragState = {
+    catId, taskIdx,
+    startX: touch.clientX, startY: touch.clientY,
+    offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top,
+    card, rect,
+    activated: false  // drag not live yet
+  };
+  e.preventDefault(); // prevent scroll only when handle touched
+}
+
+function onTouchMove(e) {
+  if (!touchDragState) return;
+
+  const touch = e.touches[0];
+  const dx = touch.clientX - touchDragState.startX;
+  const dy = touch.clientY - touchDragState.startY;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+
+  if (!touchDragState.activated) {
+    if (dist < DRAG_THRESHOLD) return; // not moved enough yet — don't prevent scroll
+    // Threshold crossed — activate drag
+    touchDragState.activated = true;
+    const card = touchDragState.card;
+    card.classList.add('dragging');
+
+    // Build ghost
+    const rect = touchDragState.rect;
+    touchGhost = card.cloneNode(true);
+    touchGhost.classList.add('drag-ghost');
+    touchGhost.style.cssText += `width:${rect.width}px;position:fixed;z-index:9999;pointer-events:none;transition:transform 0.1s;left:${touch.clientX-touchDragState.offsetX}px;top:${touch.clientY-touchDragState.offsetY}px`;
+    document.body.appendChild(touchGhost);
+  }
+
+  // Drag is live
+  e.preventDefault();
   lastClientY = touch.clientY;
   startAutoScroll(touch.clientY);
   touchGhost.style.left = (touch.clientX - touchDragState.offsetX) + 'px';
   touchGhost.style.top  = (touch.clientY - touchDragState.offsetY) + 'px';
+
   touchGhost.style.display = 'none';
   const el = document.elementFromPoint(touch.clientX, touch.clientY);
   touchGhost.style.display = '';
   document.querySelectorAll('.cat-section.drag-over').forEach(c=>c.classList.remove('drag-over'));
   if (el) { const sec = el.closest('[data-cat-section]'); if (sec) sec.classList.add('drag-over'); }
 }
+
 function onTouchEnd(e) {
   if (!touchDragState) return;
   stopAutoScroll();
+
+  if (!touchDragState.activated) {
+    // Never reached threshold — treat as tap, not drag
+    touchDragState = null;
+    return;
+  }
+
   const touch = e.changedTouches[0];
   if (touchGhost) touchGhost.style.display = 'none';
   const el = document.elementFromPoint(touch.clientX, touch.clientY);
