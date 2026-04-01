@@ -296,7 +296,7 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
   <div class="input-header">
     <span class="logo">🗂</span>
     <h1>PASTE YOUR <span>CHAOS</span></h1>
-    <p>Syncs across all your devices via GitHub Gist.</p>
+    <p>Returning user? Hit "Load My Board". First time? Paste tasks and hit "Organize It".</p>
   </div>
   <div class="input-wrap">
     <div id="input-notices"></div>
@@ -304,26 +304,29 @@ body { font-family: 'IBM Plex Mono', monospace; background: var(--bg); color: va
       <input class="key-input" id="api-key" type="password" placeholder="sk-ant-... (Anthropic API key)" spellcheck="false" autocomplete="off" />
       <a class="key-link" href="https://console.anthropic.com/settings/keys" target="_blank">get key ↗</a>
     </div>
-    <div class="key-row" style="margin-bottom:16px">
+    <div class="key-row" style="margin-bottom:14px">
       <input class="key-input" id="github-pat" type="password" placeholder="ghp_... (GitHub PAT for sync)" spellcheck="false" autocomplete="off" />
       <a class="key-link" href="https://github.com/settings/tokens/new?scopes=gist&description=DailyTaskBoard" target="_blank">get PAT ↗</a>
     </div>
 
-    <!-- Primary action: load existing board -->
-    <button class="teal-btn" id="load-board-btn" style="width:100%;margin-bottom:12px" disabled onclick="loadExistingBoard()">LOAD MY BOARD →</button>
+    <!-- Always visible task input -->
+    <textarea id="raw-input" class="field" style="min-height:160px;margin-bottom:0"
+      placeholder="First time? Paste your tasks, notes, or a Notion dump here...&#10;&#10;(Returning users can skip this and just hit Load My Board below)"></textarea>
 
-    <!-- Secondary: add new tasks (collapsible) -->
-    <div id="new-tasks-toggle" style="text-align:center;margin-bottom:10px;display:none">
-      <button class="sample-btn" onclick="toggleNewTasksArea()" id="toggle-new-btn">+ add new tasks for today ↓</button>
+    <div class="input-footer" style="margin-top:12px">
+      <span class="line-count" id="line-count">0 lines</span>
+      <button class="sample-btn" onclick="loadSample()">load sample ↗</button>
     </div>
-    <div id="new-tasks-area" style="display:none">
-      <textarea id="raw-input" class="field" style="min-height:160px;margin-bottom:0"
-        placeholder="Paste today's notes, Notion dump, meeting action items..."></textarea>
-      <div class="input-footer">
-        <span class="line-count" id="line-count">0 lines</span>
-        <button class="sample-btn" onclick="loadSample()">load sample ↗</button>
-        <button class="teal-btn" id="go-btn" disabled onclick="startParse()">ORGANIZE IT →</button>
-      </div>
+
+    <!-- Two clear action buttons -->
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+      <button class="teal-btn" id="load-board-btn" disabled onclick="loadExistingBoard()"
+        style="flex:1;background:var(--surface2);color:var(--teal);border:1.5px solid var(--teal)">
+        ↩ LOAD MY BOARD
+      </button>
+      <button class="teal-btn" id="go-btn" disabled onclick="startParse()" style="flex:1">
+        ORGANIZE IT →
+      </button>
     </div>
 
     <div class="error-box" id="input-error">
@@ -683,12 +686,12 @@ function checkReady() {
   const hasKey  = keyEl.value.trim().startsWith('sk-');
   const hasPAT  = patEl.value.trim().length > 10;
   const hasText = ta() && ta().value.trim();
+  // Load board: needs key + PAT
   const loadBtn = document.getElementById('load-board-btn');
   if (loadBtn) loadBtn.disabled = !(hasKey && hasPAT);
+  // Organize: needs key + text (PAT optional)
   const goBtn = document.getElementById('go-btn');
   if (goBtn) goBtn.disabled = !(hasKey && hasText);
-  const toggle = document.getElementById('new-tasks-toggle');
-  if (toggle) toggle.style.display = (hasKey && hasPAT) ? 'block' : 'none';
 }
 
 function toggleNewTasksArea() {
